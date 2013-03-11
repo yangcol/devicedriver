@@ -1,0 +1,26 @@
+﻿Build started 2013/3/8 17:45:50.
+     1>Project "D:\MyProject\C++\Test\2005\TuningChannelDriver\TuningChannelDriver.vcxproj" on node 2 (build target(s)).
+     1>InitializeBuildStatus:
+         Creating "Debug\TuningChannelDriver.unsuccessfulbuild" because "AlwaysCreate" was specified.
+       ClCompile:
+         C:\Program Files (x86)\Microsoft Visual Studio 10.0\VC\bin\CL.exe /c /ZI /nologo /W3 /WX- /Od /Oy- /D WIN32 /D _DEBUG /D _CONSOLE /Gm /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Fo"Debug\\" /Fd"Debug\vc100.pdb" /Gd /TP /analyze- /errorReport:prompt main.cpp TCD_FTDICHIP.cpp TCD_FTDICHIP_ChannelCommunication.cpp TCD_FTDICHIP_ChannelConfiguration.cpp
+         TCD_FTDICHIP_ChannelConfiguration.cpp
+     1>d:\myproject\c++\test\2005\tuningchanneldriver\tcd_ftdichip_channelconfiguration.cpp(1094): warning C4101: 'p_I2C_CloseChannel' : unreferenced local variable
+         TCD_FTDICHIP_ChannelCommunication.cpp
+         TCD_FTDICHIP.cpp
+         main.cpp
+         Generating Code...
+       Lib:
+         C:\Program Files (x86)\Microsoft Visual Studio 10.0\VC\bin\Lib.exe /OUT:"D:\MyProject\C++\Test\2005\DeviceDriver\Debug\TuningChannelDriver.lib" /NOLOGO Debug\main.obj
+         Debug\TCD_FTDICHIP.obj
+         Debug\TCD_FTDICHIP_ChannelCommunication.obj
+         Debug\TCD_FTDICHIP_ChannelConfiguration.obj
+         TuningChannelDriver.vcxproj -> D:\MyProject\C++\Test\2005\DeviceDriver\Debug\TuningChannelDriver.lib
+       FinalizeBuildStatus:
+         Deleting file "Debug\TuningChannelDriver.unsuccessfulbuild".
+         Touching "Debug\TuningChannelDriver.lastbuildstate".
+     1>Done Building Project "D:\MyProject\C++\Test\2005\TuningChannelDriver\TuningChannelDriver.vcxproj" (build target(s)).
+
+Build succeeded.
+
+Time Elapsed 00:00:02.81

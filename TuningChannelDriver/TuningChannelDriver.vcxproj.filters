@@ -1,0 +1,45 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Header">
+      <UniqueIdentifier>{519b65ba-2103-4ad1-a55d-9b393fc2ffae}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source">
+      <UniqueIdentifier>{cb995350-43c2-4574-b136-0e410ce2196e}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="libMPSSE_i2c.h">
+      <Filter>Header</Filter>
+    </ClInclude>
+    <ClInclude Include="TCD_FTDICHIP.h">
+      <Filter>Header</Filter>
+    </ClInclude>
+    <ClInclude Include="TCD_FTDICHIP_ChannelCommunication.h">
+      <Filter>Header</Filter>
+    </ClInclude>
+    <ClInclude Include="TCD_FTDICHIP_ChannelConfiguration.h">
+      <Filter>Header</Filter>
+    </ClInclude>
+    <ClInclude Include="TCDDefine.h">
+      <Filter>Header</Filter>
+    </ClInclude>
+    <ClInclude Include="TuningChannelDriver.h">
+      <Filter>Header</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="main.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="TCD_FTDICHIP.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="TCD_FTDICHIP_ChannelCommunication.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="TCD_FTDICHIP_ChannelConfiguration.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+  </ItemGroup>
+</Project>
