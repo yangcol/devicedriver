@@ -26,21 +26,22 @@ typedef float float32;
 enum
 {
 	TCD_OK = 0,
-	TCD_NOT_INITIALED,
-	TCD_FAIL_INITIAL,
-	TCD_HANDLE_NOT_VALID,
-	TCD_ALREADY_IN_USE,
-	TCD_IO_ERROR,
-	TCD_PARAM_ERROR,
-	TCD_MEMORY_ERROR,
-	TCD_FAIL_TO_PROGRAM,
-	TCD_FAIL_TO_READEE,
-	TCD_API_SEQUENCE_ERROR,
-	TCD_FORMAT_NOT_SUPPORTED,
-	TCD_BULK_ERROR,
-	TCD_OPERATION_NOT_ALLOWD,
-	TCD_FILE_ERROR,
-	TCD_OTHER_ERROR
+	TCD_NOT_INITIALED = -1,
+	TCD_FAIL_INITIAL = -2,
+	TCD_HANDLE_NOT_VALID = -3,
+	TCD_ALREADY_IN_USE = -4,
+	TCD_NOT_OPENED = -5,
+	TCD_IO_ERROR = -6,
+	TCD_PARAM_ERROR = -7,
+	TCD_MEMORY_ERROR = -8,
+	TCD_FAIL_TO_PROGRAM = -9,
+	TCD_FAIL_TO_READEE = -10,
+	TCD_API_SEQUENCE_ERROR = -11,
+	TCD_FORMAT_NOT_SUPPORTED = -12,
+	TCD_BULK_ERROR = -13,
+	TCD_OPERATION_NOT_ALLOWD = -14,
+	TCD_FILE_ERROR = -15,
+	TCD_OTHER_ERROR = -16
 };
 
 namespace TCDNameSpace
@@ -73,7 +74,9 @@ namespace TCDNameSpace
 			//StandardMode3P = 133333, FastMode = 400000, FastModePlus = 100000, \
 			//HighSpeedMode = 340000. Default to be StandardMode. 
 			bool threephaseclock;			///<Three phase clock.
-			uchar slaveaddress;
+			//uchar slaveaddress;
+			uchar sendOption;				//TODO
+			uchar receiveOption;				//TODO
 		};
 
 		//!Struct TCDChannelUARTConfigurtion stores UART configuration of TCD.
@@ -116,7 +119,7 @@ namespace TCDNameSpace
 			char flowcontrolSupported[64];
 		};
 
-		typedef TCDChannelInfo* PTCDChannelInfo;
+		typedef TCDChannelInfo* pTCDChannelInfo;
 		typedef TCDChannelCommonConfiguration* pTCDChannelCommonConfiguration;
 		typedef TCDChannelI2CConfiguration* pTCDChannelI2CConfiguration;
 		typedef TCDChannelUARTConfiguration* pTCDChannelUARTConfiguration;

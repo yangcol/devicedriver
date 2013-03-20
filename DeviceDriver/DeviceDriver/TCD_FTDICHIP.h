@@ -53,12 +53,12 @@ public:
 	uint32 LoadConfigurationFromFile(std::string strPath);
 	uint32 SaveConfigurationToFile(std::string strPath);
 
-	uint32 GetChannelInfo(PTCDChannelInfo pchannelInfo);
+	uint32 GetChannelInfo(pTCDChannelInfo pchannelInfo);
 
 	//!Set channel information with struct.
 	//!@param [in] pchannelInfo Channel info struct.
 	//!@return TCD_OK if success.
-	uint32 SetChannelInfo(const PTCDChannelInfo pchannelInfo);
+	uint32 SetChannelInfo(const pTCDChannelInfo pchannelInfo);
 
 	//!Auto set channel a unique serial number.
 	//!@param None

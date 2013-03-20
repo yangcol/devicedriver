@@ -21,7 +21,6 @@ public:
 	~TCD_FTDICHIP_ChannelCommunication(void);
 
 	uint32 Initial();
-
 	//!Use channel to transfer data.
 	//!@param [in] transferBuffer Buffer to transfer.
 	//!@param [in] bytesToTransfer Transfer size in bytes.
@@ -60,8 +59,11 @@ public:
 	uint32 ReceiveBulkClear();	
 	uint32 TransferBulkClear();
 
-	int SetAddress(uchar addr);
-	int SetFormat(uchar format);
+	uint32 SetSalveAddress(uchar addr);
+	uint32 SetFormat(uchar format);
+	uint32 SetSendOption(uchar sendOption);
+	uint32 SetReceiveOption(uchar receiveOption);
+
 	//!Clear bulk state.
 	//!@param N/A
 	//!@return TCD_OK if success.
@@ -72,7 +74,7 @@ protected:
 
 	//!Prepare channel for communication.
 	uint32 ChannelCommPrepare();
-
+	
 	//!Clear communication state. 
 	uint32 ChannelCommPurge();
 	uint32 ChannelCommBreakOn();
@@ -93,6 +95,9 @@ private:
 	{
 		I2C_WRITE_COMPLETION_RETRY = 10
 	};
+
+	uchar m_sendOption;
+	uchar m_receiveOption;
 	//TCDConfiguration::TCDChannelI2CConfiguration m_i2cConfiguration;
 	//TCDConfiguration::TCDChannelUARTConfiguration m_uartConfiguration;
 	//TCDConfiguration::pTCDChannelCommonConfiguration m_comConfiguration;

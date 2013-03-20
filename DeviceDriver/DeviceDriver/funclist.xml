@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!-- Ignorance.-->
+<functions><!-- This is root .-->
+	<function ID="1">
+		<name>open</name>
+		<usage>This is Test1 Help String</usage>
+	</function>
+	<function ID="2">
+		<name>TestFunc2</name>
+		<usage>This is Test2 Help String</usage>
+	</function>
+<!-- More functions are needed here.-->
+</functions>
+	

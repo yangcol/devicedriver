@@ -49,12 +49,12 @@ public:
 
 	virtual uint32 SaveConfigurationToFile(std::string strPath) = 0;
 
-	virtual uint32 GetChannelInfo(PTCDChannelInfo pchannelInfo) = 0;
+	virtual uint32 GetChannelInfo(pTCDChannelInfo pchannelInfo) = 0;
 
 	//!Set channel information with struct.
 	//!@param [in] pchannelInfo Channel info struct.
 	//!@return TCD_OK if success.
-	virtual uint32 SetChannelInfo(const PTCDChannelInfo pchannelInfo) = 0;
+	virtual uint32 SetChannelInfo(const pTCDChannelInfo pchannelInfo) = 0;
 
 	//!Auto set channel a unique serial number.
 	//!@param None

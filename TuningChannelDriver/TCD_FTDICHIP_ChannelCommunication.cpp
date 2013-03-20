@@ -20,7 +20,9 @@ namespace {
 		CHANNEL_TO_OPEN			= 0,	/*0 for first available channel, 1 for next... */
 		DATA_OFFSET				= 2
 	};
-	const uint32 default_I2C_Option = I2C_TRANSFER_OPTIONS_START_BIT| I2C_TRANSFER_OPTIONS_BREAK_ON_NACK ;
+	const uchar default_I2C_Send_Option = I2C_TRANSFER_OPTIONS_START_BIT| I2C_TRANSFER_OPTIONS_BREAK_ON_NACK|I2C_TRANSFER_OPTIONS_STOP_BIT ;
+	const uchar default_I2C_Receive_Option = I2C_TRANSFER_OPTIONS_START_BIT|I2C_TRANSFER_OPTIONS_NACK_LAST_BYTE|I2C_TRANSFER_OPTIONS_STOP_BIT;
+
 	const uint32 default_addr = 0x60;
 	//Communication part
 	HMODULE h_libMPSSE;
@@ -55,12 +57,8 @@ TCD_FTDICHIP_ChannelCommunication::TCD_FTDICHIP_ChannelCommunication(TCDHandle t
 {
 	m_tcdHandle = tcdHandle;
 	m_address = 0xC0;
-}
-
-int TCD_FTDICHIP_ChannelCommunication::SetFormat(uchar format)
-{
-	m_format = format;
-	return 0;
+	m_sendOption = default_I2C_Send_Option;
+	m_receiveOption = default_I2C_Receive_Option;
 }
 
 TCD_FTDICHIP_ChannelCommunication::~TCD_FTDICHIP_ChannelCommunication(void)
@@ -113,7 +111,7 @@ uint32 TCD_FTDICHIP_ChannelCommunication::Reset()
 	return TCD_OK;
 }
 
-int TCD_FTDICHIP_ChannelCommunication::SetAddress(uchar addr)
+uint32 TCD_FTDICHIP_ChannelCommunication::SetSalveAddress(uchar addr)
 {
 	if (!m_receiveBulkState.empty() || !m_transferBulkState.empty())
 	{
@@ -126,7 +124,6 @@ int TCD_FTDICHIP_ChannelCommunication::SetAddress(uchar addr)
 
 uint32 TCD_FTDICHIP_ChannelCommunication::ChannelTransfer(puchar ptransferBuffer, uint32 bytesToTransfer, puint32 pbytesTransferred)
 {
-	//
 	FT_STATUS ftStatus = FT_OK;
 
 	if (TCD_FORMAT_I2C == m_format)
@@ -136,7 +133,7 @@ uint32 TCD_FTDICHIP_ChannelCommunication::ChannelTransfer(puchar ptransferBuffer
 		int retryCount = 0;
 		while(!writeComplete && retryCount < I2C_WRITE_COMPLETION_RETRY)
 		{
-			ftStatus = p_I2C_DeviceWrite(m_tcdHandle, m_address, bytesToTransfer /*+ 1*/, ptransferBuffer, pbytesTransferred, default_I2C_Option);
+			ftStatus = p_I2C_DeviceWrite(m_tcdHandle, m_address, bytesToTransfer /*+ 1*/, ptransferBuffer, pbytesTransferred, m_sendOption/*m_sendOption*/);
 			retryCount++;
 			writeComplete = (bytesToTransfer == *pbytesTransferred && ftStatus == FT_OK)? true:false;
 		}
@@ -146,7 +143,7 @@ uint32 TCD_FTDICHIP_ChannelCommunication::ChannelTransfer(puchar ptransferBuffer
 	{
 		ftStatus = FT_Write(m_tcdHandle, ptransferBuffer, bytesToTransfer, pbytesTransferred);
 	}
-	//delete buffer;
+
 	if (FT_OK != ftStatus)
 	{
 		return TCD_IO_ERROR; 
@@ -161,7 +158,7 @@ uint32 TCD_FTDICHIP_ChannelCommunication::ChannelReceive(puchar preceiveBuffer, 
 
 	if (TCD_FORMAT_I2C == m_format)
 	{
-		ftStatus = p_I2C_DeviceRead(m_tcdHandle, m_address, bytesToReceive, preceiveBuffer, pbytesReceived, default_I2C_Option);
+		ftStatus = p_I2C_DeviceRead(m_tcdHandle, m_address, bytesToReceive, preceiveBuffer, pbytesReceived, m_receiveOption);
 	}
 
 	if (TCD_FORMAT_UART == m_format)
@@ -237,6 +234,25 @@ uint32 TCD_FTDICHIP_ChannelCommunication::ReceiveBulkClear()
 uint32 TCD_FTDICHIP_ChannelCommunication::TransferBulkClear()
 {
 	m_transferBulkState.clear();
+	return TCD_OK;
+}
+
+
+uint32 TCD_FTDICHIP_ChannelCommunication::SetFormat(uchar format)
+{
+	m_format = format;
+	return TCD_OK;
+}
+
+uint32 TCD_FTDICHIP_ChannelCommunication::SetSendOption(uchar sendOption)
+{
+	m_sendOption = sendOption;
+	return TCD_OK;
+}
+
+uint32 TCD_FTDICHIP_ChannelCommunication::SetReceiveOption(uchar receiveOption)
+{
+	m_receiveOption = receiveOption;
 	return TCD_OK;
 }
 

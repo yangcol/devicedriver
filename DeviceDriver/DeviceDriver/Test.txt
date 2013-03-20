@@ -1,0 +1,28 @@
+#----------------------------------------
+SERIAL_NUMBER = 
+CURRENT_FORMAT = 
+#----------------------------------------
+#----------------------------------------
+#Common Parameters
+USB_BUFFER = 
+READ_TIME_OUTS = 
+WRITE_TIME_OUTS = 
+RETRY_COUNT = 
+LATENCY_TIME = 
+#----------------------------------------
+#I2C Parameters
+CLOCK_RATE = 
+SLAVE_ADDRESS = 
+TRANSFER_OPTION = 
+RECEIVE_OPTION = 
+THREE_PHASE_CLOCK = 
+#----------------------------------------
+#UART Parameters
+#STOPBITS: 0~Stop bit 1, 2~Stop bit 2;													 
+#PARITY: 0~None, 1~ODD, 2~EVEN, 3~MARK, 4~SPACE													 
+#FLOW_CONTROL: 0~None, 256(0x0100)~RTC_CTS, 512(0x200)~DTR_DSR, 1024~XON/XOFF
+BAUD_RATE = 
+BITS_PERWORD = 
+STOPBITS = 
+PARITY = 
+FLOW_CONTROL = 

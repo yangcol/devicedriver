@@ -1,4 +1,5 @@
 #include "FTDIDeviceDriver.h"
+#include "define.h"
 
 #pragma comment(lib, "ftd2xx.lib")
 #pragma comment(lib, "TuningChannelDriver.lib")
@@ -18,6 +19,7 @@ namespace {
 	{
 		DEVICEDRIVER_BUFFERSIZE = 512
 	};
+
 	int StringToNumber(std::string strContent)
 	{
 		int num = 0;
@@ -60,8 +62,6 @@ namespace {
 
 		return 0;
 	}
-	
-
 }
 
 FTDI_DeviceDriver::FTDI_DeviceDriver(void)
@@ -69,11 +69,14 @@ FTDI_DeviceDriver::FTDI_DeviceDriver(void)
 	m_current_index = -1;
 	m_handle_map.clear();
 	m_total_Devs = 0;
+	m_pTCD = NULL;
+	m_lastErrorString.clear();
 }
 
 
 FTDI_DeviceDriver::~FTDI_DeviceDriver(void)
 {
+
 }
 
 FTDI_DeviceDriver* FTDI_DeviceDriver::CreateInstance()
@@ -81,10 +84,22 @@ FTDI_DeviceDriver* FTDI_DeviceDriver::CreateInstance()
 	if (NULL == _instance)
 	{
 		_instance = new FTDI_DeviceDriver();
+		_instance->ReFresh();
 	}
-
-	_instance->Reset();
 	return _instance;
+}
+
+void FTDI_DeviceDriver::CloseInstance()
+{
+	std::vector<int> vecInt;
+	_instance->GetOpened(vecInt);
+	for (std::vector<int>::size_type i=0; i != vecInt.size(); ++i)
+	{
+		_instance->Close(vecInt.at(i));
+	}
+	
+	delete _instance;
+	_instance = NULL;
 }
 
 FTDI_DeviceDriver* FTDI_DeviceDriver::_instance = NULL;
@@ -101,44 +116,31 @@ int FTDI_DeviceDriver::List()
 	return 0;
 }
 
+typedef FT_STATUS (*pfunc_I2C_OpenChannel)(uint32 index, FT_HANDLE *handle);
 int FTDI_DeviceDriver::Open(int channel_index)
 {
 	FT_STATUS ftStatus = FT_OK;
 	if (channel_index <0)
 	{
-		return -1;
+		return TCD_PARAM_ERROR;
 	}
 
 	std::map<int, TuningChannelDriver*>::iterator iterHandle = m_handle_map.begin();
-#if defined SINGLE_CHANNEL_MODE
-	for (; iterHandle != m_handle_map.end(); ++iterHandle)
-	{
-		if (NULL != iterHandle->second && channel_index != iterHandle->first)
-		{
-			printf("Another channel already opened!\n");
-			return 0;
-		}
-	}
-#else
-	
-#endif
 
 	iterHandle = m_handle_map.find(channel_index);
 	if (!m_handle_map.empty() && m_handle_map.end() != iterHandle)
 	{
-		printf("Already Opened!\n");
-		return -1;
+		return TCD_ALREADY_IN_USE;
 	}
 	
-	//Open a channel
+	////Open a channel in i2c mode.
 	FT_HANDLE ftHandle = NULL;
 	ftStatus = FT_Open(channel_index, &ftHandle);	
 	if (FT_OK != ftStatus)
 	{
-		printf("Open fail!\n");
-		return -1;
+		return TCD_ALREADY_IN_USE;
 	}
-
+  
 	//Open successfully.
 	m_index_mutex._Lock();
 	m_current_index = channel_index;
@@ -147,39 +149,35 @@ int FTDI_DeviceDriver::Open(int channel_index)
 
 	if (NULL == pointer)
 	{
-		printf("Open fail!\n");
-		return -1;
+		return TCD_MEMORY_ERROR;
+	}
+
+	if (0 != pointer->InitialChannel())
+	{
+		FT_Close(ftHandle);
+		return TCD_FAIL_INITIAL;
 	}
 
 	m_handle_map.insert(std::pair<int, TuningChannelDriver*>(channel_index, pointer));
-	
-
-	if (0 != m_handle_map[channel_index]->InitialChannel())
-	{
-		printf("Open Channel Fail! Initialization Failed\n");
-		return -1;
-	}
-	return ftStatus;
+	pointer = NULL;
+	return TCD_OK;
 }
 
 int FTDI_DeviceDriver::Close(int channel_index)
 {
-	//FT_STATUS ftStatus = FT_OK;
-	std::map<int, TuningChannelDriver*>::iterator iterTCD = m_handle_map.begin();
-	iterTCD = m_handle_map.find(channel_index);
-	if (m_handle_map.end() == iterTCD)
-	{
-		printf("Can not find channel %d Fail!\n", channel_index);
-		return -1;
-	}
-
+	FTDI_DEVICE_DRIVER_LOW_CHECK(CheckChannel(channel_index));
 	
-	if (NULL != iterTCD->second)
+	m_pTCD->ReleaseChannel();
+
+	std::map<int, TuningChannelDriver*>::iterator iterTCD;
+	iterTCD = m_handle_map.find(channel_index);
+	if (m_handle_map.end() != iterTCD)
 	{
-		iterTCD	->second->ReleaseChannel();
-		iterTCD->second = NULL;
 		m_handle_map.erase(iterTCD);
-	}
+	}	
+	
+	delete m_pTCD;
+	m_pTCD = NULL;
 
 	m_index_mutex._Lock();
 	m_current_index = -1;
@@ -190,131 +188,50 @@ int FTDI_DeviceDriver::Close(int channel_index)
 
 int FTDI_DeviceDriver::LoadConfig(int channel_index, std::string strConfigPath)
 {
-	if (0 != CheckChannel(channel_index))
-	{
-		return -1;
-	}
+	FTDI_DEVICE_DRIVER_LOW_CHECK(CheckChannel(channel_index));
 
-	std::map<int, TuningChannelDriver*>::iterator iterTCD = m_handle_map.begin();
-	iterTCD = m_handle_map.find(channel_index);
-
-	int result = iterTCD	->second->LoadConfigurationFromFile(strConfigPath);
-
-	return result;
+	return m_pTCD->LoadConfigurationFromFile(strConfigPath);
 }
 
 int FTDI_DeviceDriver::SaveConfig(int channel_index, std::string strConfigPath)
 {
-	if (0 != CheckChannel(channel_index))
-	{
-		return -1;
-	}
+	FTDI_DEVICE_DRIVER_LOW_CHECK(CheckChannel(channel_index));
 
-	std::map<int, TuningChannelDriver*>::iterator iterTCD = m_handle_map.begin();
-	iterTCD = m_handle_map.find(channel_index);
-
-
-	int result = iterTCD	->second->SaveConfigurationToFile(strConfigPath);
-
-	return result;
+	return m_pTCD->SaveConfigurationToFile(strConfigPath);
 }
 
 //Save file with name serial number.
 int FTDI_DeviceDriver::SaveDefaultConfig(int channel_index)
 {
-	if (0 != CheckChannel(channel_index))
-	{
-		return -1;
-	}
-
-	std::map<int, TuningChannelDriver*>::iterator iterTCD = m_handle_map.begin();
-	iterTCD = m_handle_map.find(channel_index);
+	FTDI_DEVICE_DRIVER_LOW_CHECK(CheckChannel(channel_index));
 
 	TCDChannelInfo channelInfo;
-	iterTCD->second->GetChannelInfo(&channelInfo);
+	m_pTCD->GetChannelInfo(&channelInfo);
 	std::string strSerialNumber(channelInfo.serialNumber);
-	int result = iterTCD	->second->SaveConfigurationToFile(strSerialNumber);
 
-	return result;
+	return m_pTCD->SaveConfigurationToFile(strSerialNumber);
 }
 
-int FTDI_DeviceDriver::SetAddress(int channel_index, unsigned char addr)
+int FTDI_DeviceDriver::SetSlaveAddress(int channel_index, unsigned char addr)
 {
-	if (0 != CheckChannel(channel_index))
-	{
-		return -1;
-	}
-	std::map<int, TuningChannelDriver*>::iterator iterTCD = m_handle_map.begin();
-	iterTCD = m_handle_map.find(channel_index);
-	iterTCD->second->SetAddress(addr);
+	FTDI_DEVICE_DRIVER_LOW_CHECK(CheckChannel(channel_index));
 
-	return 0;
-}
-
-
-int FTDI_DeviceDriver::Receive(int channel_index, std::string strRecPath)
-{
-	if (0 != CheckChannel(channel_index))
-	{
-		return -1;
-	}
-
-	std::fstream fsOutput;
-	fsOutput.open(strRecPath.c_str(), std::ios::out || std::ios::trunc || std::ios::binary);
-	if (!fsOutput.is_open())
-	{
-		return -1;
-	}
-
-	std::map<int, TuningChannelDriver*>::iterator iterTCD = m_handle_map.begin();
-	iterTCD = m_handle_map.find(channel_index);
-	if (m_handle_map.end() == iterTCD)
-	{
-		return -1;
-	}
-
-	uchar buffer[DEVICEDRIVER_BUFFERSIZE];
-	uint32 bytesReceived = -1;
-	while ((0 ==iterTCD->second->ChannelReceive(buffer, DEVICEDRIVER_BUFFERSIZE, &bytesReceived)) && 0 != bytesReceived)
-	{
-		std::string strContent;
-		for (uint32 i=0; i != bytesReceived && i != DEVICEDRIVER_BUFFERSIZE; ++i)
-		{
-			strContent.push_back(buffer[i]);
-		}
-		fsOutput<<strContent;
-	}
-	
-	return 0;
+	return m_pTCD->SetAddress(addr);
 }
 
 int FTDI_DeviceDriver::Receive(int channel_index, unsigned char* byteArray, size_t sizeToReceive, size_t *sizeReceived)
 {
-	if (0 != CheckChannel(channel_index))
-	{
-		return -1;
-	}
-	
-	std::map<int, TuningChannelDriver*>::iterator iterTCD = m_handle_map.begin();
-	iterTCD = m_handle_map.find(channel_index);
+	FTDI_DEVICE_DRIVER_LOW_CHECK(CheckChannel(channel_index));
 
-	if (m_handle_map.end() == iterTCD)
-	{
-		return -1;
-	}
-	
 	uint32 tempvalue;
-	iterTCD->second->ChannelReceive(byteArray, (uint32)sizeToReceive, &tempvalue);
+	m_pTCD->ChannelReceive(byteArray, (uint32)sizeToReceive, &tempvalue);
 	*sizeReceived = tempvalue;
 	return 0;
 }
 
 int FTDI_DeviceDriver::Transfer(int channel_index, std::string strTransferPath)
 {
-	if (0 != CheckChannel(channel_index))
-	{
-		return -1;
-	}
+	FTDI_DEVICE_DRIVER_LOW_CHECK(CheckChannel(channel_index));
 
 	FILE* hFile;
 	fopen_s(&hFile, strTransferPath.c_str(), "rb");
@@ -327,13 +244,6 @@ int FTDI_DeviceDriver::Transfer(int channel_index, std::string strTransferPath)
 	
 	size_t content_offset = 0;
 
-	std::map<int, TuningChannelDriver*>::iterator iterTCD = m_handle_map.begin();
-	iterTCD = m_handle_map.find(channel_index);
-	if (m_handle_map.end() == iterTCD)
-	{
-		return -1;
-	}
-
 	//api result
 	uint32 result;
 	while (content_offset < fileLength) 
@@ -344,7 +254,7 @@ int FTDI_DeviceDriver::Transfer(int channel_index, std::string strTransferPath)
 			if (BUFSIZ == fread(fileBuff, sizeof(unsigned char), BUFSIZ, hFile))
 			{
 					uint32 bytesTransferred = 0;
-					result = iterTCD->second->ChannelTransfer(fileBuff, sizeof(fileBuff), &bytesTransferred);
+					result = m_pTCD->ChannelTransfer(fileBuff, sizeof(fileBuff), &bytesTransferred);
 					if (0 != result)
 					{
 						return -1;
@@ -360,7 +270,7 @@ int FTDI_DeviceDriver::Transfer(int channel_index, std::string strTransferPath)
 			if ((fileLength - content_offset) == fread(fileBuff, sizeof(unsigned char),fileLength - content_offset, hFile))
 			{		
 				uint32 bytesTransferred = 0;
-				result = iterTCD->second->ChannelTransfer(fileBuff, static_cast<uint32>(fileLength - content_offset), &bytesTransferred);
+				result = m_pTCD->ChannelTransfer(fileBuff, static_cast<uint32>(fileLength - content_offset), &bytesTransferred);
 				if (0 != result)
 				{
 					return -1;
@@ -374,147 +284,22 @@ int FTDI_DeviceDriver::Transfer(int channel_index, std::string strTransferPath)
 		content_offset += BUFSIZ;
 	}
 
-
-	return 0;
+	return TCD_OK;
 }
 
 int FTDI_DeviceDriver::Transfer(int channel_index, unsigned char* byteArray, size_t sizeToTransfer, size_t *sizeTransferred)
 {
-	if (0 != CheckChannel(channel_index))
-	{
-		return -1;
-	}
-	std::map<int, TuningChannelDriver*>::iterator iterTCD = m_handle_map.begin();
-	iterTCD = m_handle_map.find(channel_index);
-	if (m_handle_map.end() == iterTCD)
-	{
-		return -1;
-	}
+	FTDI_DEVICE_DRIVER_LOW_CHECK(CheckChannel(channel_index));
 
-	iterTCD->second->ChannelTransfer(byteArray, (uint32)sizeToTransfer, (puint32)sizeTransferred);
-
-	return 0;
+	return m_pTCD->ChannelTransfer(byteArray, (uint32)sizeToTransfer, (puint32)sizeTransferred);	
 }
-//int DeviceDriver::Call(std::vector<std::string> string_vector)
-//{
-//	
-//	if (string_vector.empty())
-//	{
-//		//No parameters
-//		return -1;
-//	}
-//
-//	int func_result = 0;
-//	//with two
-//	FUNC_TYPE current_func = static_cast<FUNC_TYPE>(string_vector.size() - 1);
-//
-//	switch(current_func)
-//	{
-//	case INPUT_PARAM_0:
-//		{
-//			std::map<std::string ,fun >::iterator iter_fun;; 
-//			if (funMAP.end() != (iter_fun = funMAP.find(string_vector.at(0))))
-//			{
-//				func_result = (this->*funMAP[string_vector.at(0)])();
-//				break;
-//			} 
-//			print_help();
-//		}
-//		break;
-//	case INPUT_PARAM_1:
-//		{
-//			std::map<std::string ,funA >::iterator iter_funA;; 
-//			if (funAMAP.end() != (iter_funA = funAMAP.find(string_vector.at(0))))
-//			{
-//				func_result = (this->*funAMAP[string_vector.at(0)])(StringToNumber(string_vector.at(1)));
-//				break;
-//			}
-//
-//			std::map<std::string ,funS >::iterator iter_funS;; 
-//			if (funSMAP.end() != (iter_funS = funSMAP.find(string_vector.at(0))))
-//			{
-//				func_result = (this->*funSMAP[string_vector.at(0)])(string_vector.at(1));
-//				break;
-//			}
-//			print_help();
-//		}
-//		break;
-//	case INPUT_PARAM_2:
-//		{
-//			std::map<std::string ,funB >::iterator iter_funB;; 
-//			if (funBMAP.end() != (iter_funB = funBMAP.find(string_vector.at(0))))
-//			{
-//				func_result = (this->*funBMAP[string_vector.at(0)])(StringToNumber(string_vector.at(1)), string_vector.at(2));
-//				break;
-//			}
-//			print_help();
-//		}
-//		break;		
-//	default:
-//		printf("No functions are found or parameters not available");
-//		print_help();
-//		return -1;
-//	}
-//	if (0 != func_result)
-//	{
-//		print_help();
-//	}
-//	//
-//	return 0;
-//}
 
-//int DeviceDriver::Call(std::string strLine)
-//{
-//	std::vector<std::string> vector_parameters;
-//	SeparateParameters(strLine, vector_parameters);
-//
-//	return (Call(vector_parameters));
-//}
-
-//int DeviceDriver::Help()
-//{
-	////printf("\nFunction Help is Called!\n");
-	//printf("\nThe flowing functions are available\n");
-	////printf("")
-	//std::map<std::string, fun>::iterator iter_FUNMAP = funMAP.begin();
-	//std::map<std::string, funA>::iterator iter_FUNAMAP = funAMAP.begin();
-	//std::map<std::string, funB>::iterator iter_FUNBMAP = funBMAP.begin();
-	////for (size_t i=0; i != funMAP.size(); ++i)
-	////{
-	////	printf("%s", funMAP[i]->first);
-	////}
-	//for (; iter_FUNMAP != funMAP.end(); ++iter_FUNMAP)
-	//{
-	//	printf("%s\n",iter_FUNMAP->first.c_str());
-	//}
-
-	//for (; iter_FUNAMAP != funAMAP.end(); ++iter_FUNAMAP)
-	//{
-	//	printf("%s\n",iter_FUNAMAP->first.c_str());
-	//}
-
-	//for (; iter_FUNBMAP != funBMAP.end(); ++iter_FUNBMAP)
-	//{
-	//	printf("%s\n",iter_FUNBMAP->first.c_str());
-	//}
-
-//	return 0;
-//}
-
-//int DeviceDriver::HelpFunc(std::string strFuncName)
-//{
-//	printf("Function: %s help is called!\n", strFuncName.c_str());
-//	return 0;
-//}
-
-int FTDI_DeviceDriver::Reset()
+int FTDI_DeviceDriver::ReFresh()
 {
 	std::vector<int> vectInt;
 	std::vector<int>::size_type i = 0;
 
 	GetOpened(vectInt);
-
-
 
 	for(; i != vectInt.size(); ++i)
 	{
@@ -529,7 +314,7 @@ int FTDI_DeviceDriver::Reset()
 
 	if (FT_OK != ftStatus)
 	{
-		printf("Fail to refresh devices!\n");
+		//printf("Fail to refresh devices!\n");
 		m_total_Devs = 0;
 		return -1;
 	}
@@ -537,29 +322,24 @@ int FTDI_DeviceDriver::Reset()
 	return 0;
 }
 
+//!Exam if channel index available and if channel is opened.
 int FTDI_DeviceDriver::CheckChannel(int channel_index)
 {
 	std::map<int, TuningChannelDriver*>::iterator iterTCD = m_handle_map.begin();
 	iterTCD = m_handle_map.find(channel_index);
 	if (m_handle_map.end() == iterTCD)
 	{
-		printf("Can not find channel %d!\n", channel_index);
-		return -1;
+		//printf("Can not find channel %d!\n", channel_index);
+		return TCD_NOT_OPENED;
 	}
-
-	if (NULL == iterTCD->second)
-	{
-		printf("Channel is %d not opened!\n", channel_index);
-		return -2;
-	}
-	return 0;
+	
+	m_pTCD = iterTCD->second;
+	return TCD_OK;
 }
 
 int FTDI_DeviceDriver::GetOpened(std::vector<int> &index_vector)
 {
 	index_vector.clear();
-	std::map<int, TuningChannelDriver*>::iterator iterTCD = m_handle_map.begin();
-
 	for (int i=0; i !=m_handle_map.size(); ++i)
 	{
 		if (NULL != m_handle_map[i])
@@ -567,5 +347,82 @@ int FTDI_DeviceDriver::GetOpened(std::vector<int> &index_vector)
 			index_vector.push_back(i);
 		}
 	}
-	return 0;
+	return TCD_OK;
+}
+
+int FTDI_DeviceDriver::GetInfo(int channel_index, TCDChannelInfo &channelInfo)
+{
+	FTDI_DEVICE_DRIVER_LOW_CHECK(CheckChannel(channel_index));
+	
+	return m_pTCD->GetChannelInfo(&channelInfo);;
+}
+
+int FTDI_DeviceDriver::SetInfo(int channel_index, const pTCDChannelInfo pchannelInfo)
+{
+	FTDI_DEVICE_DRIVER_LOW_CHECK(CheckChannel(channel_index));
+
+	return m_pTCD->SetChannelInfo(pchannelInfo);
+}
+
+int FTDI_DeviceDriver::GetCommonConfig(int channel_index, TCDChannelCommonConfiguration &commonConfig)
+{
+	FTDI_DEVICE_DRIVER_LOW_CHECK(CheckChannel(channel_index));
+
+	return m_pTCD->GetChannelCommonConfiguration(&commonConfig);
+}
+
+int FTDI_DeviceDriver::ConfigCommon(int channel_index, const pTCDChannelCommonConfiguration pCommonConfig)
+{
+	FTDI_DEVICE_DRIVER_LOW_CHECK(CheckChannel(channel_index));
+	//LOW_CHECK(m_pTCD->CheckChannelCommConfiguration(pCommonConfig, m_lastErrorString));
+	return m_pTCD->SaveChannelCommonConfiguration(pCommonConfig);
+}
+
+int FTDI_DeviceDriver::GetI2CConfig(int channel_index, TCDChannelI2CConfiguration &I2CConfig)
+{
+	FTDI_DEVICE_DRIVER_LOW_CHECK(CheckChannel(channel_index));
+
+	return m_pTCD->GetChannelI2CConfiguration(&I2CConfig);
+}
+
+int FTDI_DeviceDriver::ConfigI2C(int channel_index, const pTCDChannelI2CConfiguration pI2CConfig)
+{
+	FTDI_DEVICE_DRIVER_LOW_CHECK(CheckChannel(channel_index));
+	//LOW_CHECK(m_pTCD->CheckChannelI2CConfiguration(pI2CConfig, m_lastErrorString));
+	
+	return m_pTCD->SaveChannelI2CConfiguration(pI2CConfig);
+}
+
+int FTDI_DeviceDriver::GetUARTConfig(int channel_index, TCDChannelUARTConfiguration &UARTConfig)
+{
+	FTDI_DEVICE_DRIVER_LOW_CHECK(CheckChannel(channel_index));
+
+	return m_pTCD->GetChannelUARTConfiguration(&UARTConfig);
+}
+
+int FTDI_DeviceDriver::ConfigUART(int channel_index, const pTCDChannelUARTConfiguration pUARTConfig)
+{
+	FTDI_DEVICE_DRIVER_LOW_CHECK(CheckChannel(channel_index));
+	//LOW_CHECK(m_pTCD->CheckChannelUARTConfiguration(pUARTConfig, m_lastErrorString));
+
+	return m_pTCD->SaveChannelUARTConfiguration(pUARTConfig);
+}
+
+int FTDI_DeviceDriver::GetLastErrorString(std::string &strErrorString)
+{
+	strErrorString.clear();
+	strErrorString.assign(m_lastErrorString);
+	return TCD_OK;
+}
+
+int FTDI_DeviceDriver::CloseAll()
+{
+	std::vector<int> vectInt;
+	FTDI_DEVICE_DRIVER_LOW_CHECK(GetOpened(vectInt));
+
+	for (std::vector<int>::size_type i=0; i != vectInt.size(); ++i)
+	{
+		Close(vectInt.at(i));
+	}
+	return TCD_OK;
 }

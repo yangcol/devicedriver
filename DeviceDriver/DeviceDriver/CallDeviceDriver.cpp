@@ -1,14 +1,28 @@
+//!@file CallDeviceDriver.cpp
+//!@brief Process commands to call device driver functions.
+//!@remark Now only one channel is allowed to be used. But notice that,
+//device driver is able to manage all devices, so it's able to manage several devices one time. If you want to
+//use more than one devices, modify codes in this CPP file.
 #include "FTDIDeviceDriver.h"
 #include "TCDDefine.h"
+#include "XMLParser.h"
+#include "define.h"
 #include <string>
+
+#include "Util.h"
 #ifndef BATCH_TEST
 #define BATCH_TEST
 #include <iostream>
 #include <fstream>
 #endif
 
+int Init_Call_DeviceDriver();
+int CallDeviceDriver(std::string strCommand);
+
 using namespace::TCDNameSpace::TCDConfiguration;
+
 namespace {
+	const std::string static_strXML = "funclist.xml";
 	typedef int (*fun)();
 	typedef std::map<std::string, fun>::iterator iterFun;
 	std::map<std::string, fun> static_function_MAP;
@@ -16,12 +30,20 @@ namespace {
 	const std::string const_not_found_string = " not recognized";
 	FTDI_DeviceDriver* static_pDeviceDriver = NULL;
 	std::vector<std::string> static_vector_command;
+	std::vector<int> static_open_vector;
 	bool static_bInitializedFlag = false;
 	static unsigned char readByte = 0;
-	//static_vector_command include function name, so if with no input param, size of command is 1.
+	int static_current_open_index = -1;
 	enum 
 	{
-		INPUT_PARAM_0 = 1,
+		DEFAUL_OPEN_INDEX = 0
+	};
+	//static_vector_command include function name, so if with no input param, size of command is 1.
+	//INPUT_PARAM_0 identifies the command index of command.
+	enum 
+	{
+		INDEX_COMMAND_NAME = 0,
+		INPUT_PARAM_0,
 		INPUT_PARAM_1,
 		INPUT_PARAM_2,
 		INPUT_PARAM_3,
@@ -29,6 +51,11 @@ namespace {
 		INPUT_PARAM_5,
 		INPUT_PARAM_6
 	};
+
+	enum {
+		RATE_CLOCKRATE_K = 1000
+	};
+
 };
 
 static int call_help();
@@ -39,27 +66,26 @@ static int call_load();
 static int call_save();
 static int call_send();
 static int call_receive();
-static int call_setaddr();
+
 static int call_configi2c();
+static int call_geti2c();
 
-static int SeparateParameters(std::string strLine, std::vector<std::string> &vectorParameters);
-static int Print_Function_Usage_Error(std::string strCommand);
-static int Print_Function_Not_Supported(std::string strCommand);
-static int Init_Call_DeviceDriver();
+static int call_configcom();
+static int call_getcom();
 
-static int StringToHEX_OneByte(std::string strContent, unsigned char &number);
+static int call_configuart();
+static int call_getuart();
 
-//Float type is not supported
-static int StringToNumber(std::string strContent);
+
+static int call_quit();
+
+static int Print_Function_Usage_Error();
+static int Print_Function_Not_Supported();
+
+static int GetOpened();
 
 int CallDeviceDriver(std::string strCommand)
 {
-	if (false == static_bInitializedFlag)
-	{
-		Init_Call_DeviceDriver();
-		//return -1;
-	}
-
 	if (false == static_bInitializedFlag)
 	{
 		printf("Init Fail!\n");
@@ -79,18 +105,18 @@ int CallDeviceDriver(std::string strCommand)
 		return -1;
 	}
 
-	iterFunctionMap = static_function_MAP.find(static_vector_command.at(0));
+	iterFunctionMap = static_function_MAP.find(static_vector_command.at(INDEX_COMMAND_NAME));
 
 	if (static_function_MAP.end() == iterFunctionMap)
 	{
 		//Function with name is not found in function list
-		printf("[%s] %s, %s", static_vector_command.at(0).c_str(), const_not_found_string.c_str(), const_help_string.c_str());
+		printf("[%s] %s, %s", static_vector_command.at(INDEX_COMMAND_NAME).c_str(), const_not_found_string.c_str(), const_help_string.c_str());
 		return -1;
 	}
 
 	//Function exists
 	int result = iterFunctionMap->second();
-
+	
 	return result;
 }
 
@@ -104,24 +130,34 @@ static int RegFunc(std::string strfuncName, int (*func)())
 	}
 
 	static_function_MAP.insert(std::pair<std::string, fun>(strfuncName, func));
-		//std::pair<int, TuningChannelDriver*>(i, p
+	//std::pair<int, TuningChannelDriver*>(i, p
 	return 0;
 }
 
-static int Init_Call_DeviceDriver()
+int Init_Call_DeviceDriver()
 {
 	static_function_MAP.clear();
 
 	//Reg all functions
-	RegFunc("help", call_help);
-	RegFunc("list", call_list);
+	FTDI_DEVICE_DRIVER_LOW_CHECK(RegFunc("help", call_help));
+	FTDI_DEVICE_DRIVER_LOW_CHECK(RegFunc("list", call_list));
 	RegFunc("open", call_open);
 	RegFunc("close", call_close);
 	RegFunc("load", call_load);
 	RegFunc("save", call_save);
 	RegFunc("send", call_send);
 	RegFunc("receive", call_receive);
-	RegFunc("configi2c", call_configi2c);
+
+	RegFunc("confi2c", call_configi2c);
+	RegFunc("geti2c", call_geti2c);
+
+	RegFunc("confcom", call_configcom);
+	RegFunc("getcom", call_getcom);
+
+	RegFunc("confuart", call_configuart);
+	RegFunc("getuart", call_getuart);
+
+	RegFunc("quit", call_quit);
 	//RegFunc("addr", call_setaddr);
 
 	static_pDeviceDriver = FTDI_DeviceDriver::CreateInstance();
@@ -135,33 +171,44 @@ static int Init_Call_DeviceDriver()
 
 static int call_help()
 {
+	enum {
+		FUNCNAME = 1//index of function name called for help on static_vector_command
+	};
+
 	switch (static_vector_command.size())
 	{
-	//Others
-	//help + 0 params
+		//Others
+		//help + 0 params
 	case INPUT_PARAM_0:
 		{
 			//list all functions
 			iterFun iterFunctionMap = static_function_MAP.begin();
+			printf("Please use space to separate your parameters.\n");
 			printf("Available functions are listed below:\n");
+			//Get functions from xml
 			for (; iterFunctionMap != static_function_MAP.end(); ++iterFunctionMap)
 			{
 				printf("\t%s\n", iterFunctionMap->first.c_str());
 			}
 		}
 		break;	
-	//help + 1 params
+		//help + 1 params
 	case INPUT_PARAM_1:
 		{
-			iterFun iterFunctionMap = static_function_MAP.find(static_vector_command.at(1));
+			std::string strfuncDetail;
+			iterFun iterFunctionMap = static_function_MAP.find(static_vector_command.at(FUNCNAME));
 			if (static_function_MAP.end() == iterFunctionMap)
 			{
-				Print_Function_Not_Supported(static_vector_command.at(0));
+				Print_Function_Not_Supported();
 			}
+			DeviceDriver_XMLParser xmlParser;
+			FTDI_DEVICE_DRIVER_LOW_CHECK(xmlParser.LoadXML(static_strXML));
+			FTDI_DEVICE_DRIVER_LOW_CHECK(xmlParser.GetFunctionDetail(static_vector_command.at(FUNCNAME), strfuncDetail));
+			std::cout<<strfuncDetail.c_str()<<std::endl;
 		}
 		break;
 	default:
-		Print_Function_Usage_Error(static_vector_command.at(0));
+		Print_Function_Usage_Error();
 		return -1;
 	}
 
@@ -181,10 +228,10 @@ static int call_list()
 		}
 		break;
 	default:
-		Print_Function_Usage_Error(static_vector_command.at(0));
+		Print_Function_Usage_Error();
 		return -1;
 	}
-	
+
 	return result;
 }
 
@@ -196,30 +243,26 @@ static int call_open()
 	{
 	case INPUT_PARAM_1:
 		{
-			std::vector<int> index_opened;
-			static_pDeviceDriver->GetOpened(index_opened);
-
-			if (0 != index_opened.size())
-			{
-				printf("Another channel already opened!\n");
-			}
 			result = static_pDeviceDriver->Open(StringToNumber(static_vector_command.at(1)));
 		}
 		break;
 	default:
-		Print_Function_Usage_Error(static_vector_command.at(0));
+		Print_Function_Usage_Error();
 		return -1;
 	}
-	
-	if (0 != result)
+
+	if (0 == result)
 	{
-		printf("Open Fail!\n");
+		printf("Success!\n");
+	} else
+	{
+		printf("Fail!\n");
 	}
-	
-	printf("Success!\n");
+
 	return result;
 }
 
+//Close all opened devices
 static int call_close()
 {
 	int result  = -1;
@@ -227,21 +270,22 @@ static int call_close()
 	{
 	case INPUT_PARAM_0:
 		{
-			std::vector<int> index_opened;
-			static_pDeviceDriver->GetOpened(index_opened);
-
-			if (0 != index_opened.size())
-			{
-				result = static_pDeviceDriver->Close(index_opened.at(0));
-			}
+			static_pDeviceDriver->CloseAll();
 		}
 		break;
-	//case INPUT_PARAM_1:
-
-	//	
-	//	break;
+	case INPUT_PARAM_1:
+		{
+			int res = StringToNumber(static_vector_command.at(1));
+			if (-1 == res)
+			{
+				printf("Input params error!\n");
+				break;
+			}
+			static_pDeviceDriver->Close(res);
+			break;
+		}
 	default:
-		Print_Function_Usage_Error(static_vector_command.at(0));
+		Print_Function_Usage_Error();
 		return -1;
 	}
 
@@ -251,25 +295,21 @@ static int call_close()
 static int call_load()
 {
 	int result  = -1;
+	FTDI_DEVICE_DRIVER_LOW_CHECK(GetOpened());
 	switch(static_vector_command.size())
 	{
 	case INPUT_PARAM_1:
 		{
 			std::vector<int> vector_int;
-			static_pDeviceDriver->GetOpened(vector_int);
-			if (0 == vector_int.size())
-			{
-				printf("No device is opened!\n");
-				break;
-			}
-			result = static_pDeviceDriver->LoadConfig(vector_int.at(0), static_vector_command.at(1));
+			
+			result = static_pDeviceDriver->LoadConfig(static_current_open_index, static_vector_command.at(1));
 		}
 		break;
 	case INPUT_PARAM_2:
 		result = static_pDeviceDriver->LoadConfig(StringToNumber(static_vector_command.at(1)), static_vector_command.at(2));
 		break;
 	default:
-		Print_Function_Usage_Error(static_vector_command.at(0));
+		Print_Function_Usage_Error();
 		return -1;
 	}
 
@@ -278,40 +318,29 @@ static int call_load()
 
 static int call_save()
 {
+	FTDI_DEVICE_DRIVER_LOW_CHECK(GetOpened());
 	int result  = -1;
 	switch(static_vector_command.size())
 	{
-		case INPUT_PARAM_0:
-			{
-				std::vector<int> vector_int;
-				static_pDeviceDriver->GetOpened(vector_int);
-				if (0 == vector_int.size())
-				{
-					printf("No device is opened!\n");
-					break;
-				}
-				//static_pDeviceDriver->Get
-				//static_pDeviceDriver->GetOpened()
-				result = static_pDeviceDriver->SaveDefaultConfig(vector_int.at(0));
-			}
-			break;
+	case INPUT_PARAM_0:
+		{
+			result = static_pDeviceDriver->SaveDefaultConfig(static_current_open_index);
+		}
+		break;
 	case INPUT_PARAM_1:
 		{
-			std::vector<int> vector_int;
-			static_pDeviceDriver->GetOpened(vector_int);
-			if (0 == vector_int.size())
-			{
-				printf("No device is opened!\n");
-				break;
-			}
-			result = static_pDeviceDriver->SaveConfig(vector_int.at(0), static_vector_command.at(1));
+			result = static_pDeviceDriver->SaveConfig(static_current_open_index, static_vector_command.at(1));
 		}
 		break;
 	default:
-		Print_Function_Usage_Error(static_vector_command.at(0));
-		return -1;
+		result = -1;
+		break;
 	}
-
+	
+	if (0 != result)
+	{
+		Print_Function_Usage_Error();
+	}
 	return result;
 }
 
@@ -320,290 +349,338 @@ static int call_save()
 //separated by space
 static int call_send()
 {
+	FTDI_DEVICE_DRIVER_LOW_CHECK(GetOpened());
 	int result  = -1;
 	switch(static_vector_command.size())
 	{
 	case INPUT_PARAM_0:
 	case INPUT_PARAM_1:
-		Print_Function_Not_Supported(static_vector_command.at(0));
+		Print_Function_Not_Supported();
 		break;
 	default:
 		{
-			//the first param is address, the second is content.
-			std::vector<int> vector_int;
-			static_pDeviceDriver->GetOpened(vector_int);
-			if (0 == vector_int.size())
-			{
-				printf("No device is opened!\n");
-				break;
-			}
-
 			const int paramOffSet = 2;	
 			const int commandOffset = 1;
-			//for (size_t i= commandOffset; i != static_vector_command.size(); ++i)
-			//{
-			//	if (static_vector_command.at(i).size())
-			//	{
-			//	}
-			//}
 			unsigned char addr = 0;
 			if (0 != StringToHEX_OneByte(static_vector_command.at(1), addr))
 			{
-				printf("Input params error!\n");
+				//printf("Input params error!\n");
+				Print_Function_Usage_Error();
 				return -1;
 			}
 
 			unsigned char writeByte = 0;
 			size_t sizeWritten;
-			static_pDeviceDriver->SetAddress(vector_int.at(0), addr);
+			static_pDeviceDriver->SetSlaveAddress(static_current_open_index, addr);
 			// in command vector, bytes starts from index 2. 0 is command, 1 is address.
 			unsigned char *buffer = new unsigned char[static_vector_command.size() - paramOffSet];
 			for (size_t i=0; i != static_vector_command.size() - paramOffSet; ++i)
 			{
-				if (0 != StringToHEX_OneByte(static_vector_command.at(i + paramOffSet), buffer[i]))
+    			if (0 != StringToHEX_OneByte(static_vector_command.at(i + paramOffSet), buffer[i]))
 				{
-					printf("Input params error!\n");
+                    
+					//printf("Input params error!\n");
+					Print_Function_Usage_Error();
 					return -1;
 				}
 			}
 
 			int result = -1;
-			result = static_pDeviceDriver->Transfer(vector_int.at(0), buffer, static_vector_command.size() - paramOffSet, &sizeWritten);
+			result = static_pDeviceDriver->Transfer(static_current_open_index, buffer, static_vector_command.size() - paramOffSet, &sizeWritten);
 			delete buffer;
 			if (0 != result)
 			{
-				printf("Transfer Failed!");
+				printf("Transfer Failed!\n");
 			}
-//#if defined _DEBUG
-//			printf("Success\n");
-//#endif
 		}
 		break;
-	//default:
-	//	Print_Function_Usage_Error(static_vector_command.at(0));
-	//	return -1;
 	}
-
 	return 0;
 }
 
 static int call_receive()
 {
-	std::vector<int> vector_int;
-	static_pDeviceDriver->GetOpened(vector_int);
-	if (0 == vector_int.size())
-	{
-		printf("No device is opened!\n");
-		return -1;
-	}
+	enum{
+		DEFAULT_RECEIVE = 1
+	};
+
+	FTDI_DEVICE_DRIVER_LOW_CHECK(GetOpened());
 
 	switch(static_vector_command.size())
 	{
-	//case INPUT_PARAM_0:
-	//
-	//	Print_Function_Usage_Error(static_vector_command.at(0));
-	//	return -1;
-		/*result = static_pDeviceDriver->Open(StringToNumber(static_vector_command.at(1)));*/
 	case INPUT_PARAM_1:
+	case INPUT_PARAM_2:
 		{
 			unsigned char addr = 0;
-			if (0 != StringToHEX_OneByte(static_vector_command.at(1), addr))
+			if (0 != StringToHEX_OneByte(static_vector_command.at(INPUT_PARAM_0), addr))
 			{
-				printf("Input params error!\n");
+				//printf("Input params error!\n");
+				Print_Function_Usage_Error();
 				return -1;
 			}
-			static_pDeviceDriver->SetAddress(vector_int.at(0), addr);
+
+			unsigned char *recBuffer;
+			size_t sizeReceived = 0;
+			static_pDeviceDriver->SetSlaveAddress(static_current_open_index, addr);
+
+			unsigned char number = DEFAULT_RECEIVE;
+			if (INPUT_PARAM_2 == static_vector_command.size())
+			{		
+				if (0 != StringToHEX_OneByte(static_vector_command.at(INPUT_PARAM_1), number))
+				{
+					Print_Function_Usage_Error();
+					//printf("Input params error!\n");
+					return -1;
+				}
+			}
+
+			try
+			{
+				recBuffer = new unsigned char[number];
+			}
+			catch (std::bad_alloc)
+			{
+				printf("Memory Error!\n");	
+			}
+
+			static_pDeviceDriver->Receive(static_current_open_index, recBuffer, number, &sizeReceived);
+			printf("Receive %d Values: ", number);
+			for (unsigned char i=0; i != number; ++i)
+			{
+				printf("%X\n", recBuffer[i]);
+			}
+			delete recBuffer;
 		}
+		break;
 	default:
 		{	
-			unsigned char recBuffer[1];
-			size_t sizeReceived = 0;
-
-			static_pDeviceDriver->Receive(vector_int.at(0), recBuffer, sizeof(recBuffer), &sizeReceived);
-
-			int number = *recBuffer;
-			printf("Value = %X\n", number);
+			Print_Function_Usage_Error();
 		}
 	}
-
 	return 0;
 }
 
-static int call_setaddr()
-{
-	int result = 0;
-	switch(static_vector_command.size())
-	{
-	case INPUT_PARAM_1:
-		{
-			std::vector<int> vector_int;
-			static_pDeviceDriver->GetOpened(vector_int);
-			if (0 == vector_int.size())
-			{
-				printf("No device is opened!\n");
-				return -1;
-			}
-			result = static_pDeviceDriver->SetAddress(vector_int.at(0), StringToNumber( static_vector_command.at(1)));
-		}
-		
-		break;
-	default:
-		Print_Function_Usage_Error(static_vector_command.at(0));
-		return -1;
-	}
-	return result;
-}
+//!Config i2c
+//!@param 1 clockrate 100 identifies 100k
+//!@param 2 sendOption	
+//!@param 3 receiveOption
+//#define	I2C_TRANSFER_OPTIONS_START_BIT		0x00000001
 
+/*Generate stop condition before transmitting */
+//#define I2C_TRANSFER_OPTIONS_STOP_BIT		0x00000002
+
+/*Continue transmitting data in bulk without caring about Ack or nAck from device if this bit is 
+not set. If this bit is set then stop transitting the data in the buffer when the device nAcks*/
+//#define I2C_TRANSFER_OPTIONS_BREAK_ON_NACK	0x00000004
+
+/* libMPSSE-I2C generates an ACKs for every byte read. Some I2C slaves require the I2C 
+master to generate a nACK for the last data byte read. Setting this bit enables working with such 
+I2C slaves */
+//#define I2C_TRANSFER_OPTIONS_NACK_LAST_BYTE	0x00000008
+//!
+//Example: confi2c 100 7 10
 //Config i2c + clockrate
 static int call_configi2c()
 {
+	FTDI_DEVICE_DRIVER_LOW_CHECK(GetOpened());
+	enum {
+		CLOCKRATE = 1,
+		SEND_OPTION,
+		RECEIVE_OPTION
+	};
 	int result = 0;
 	switch(static_vector_command.size())
 	{
-	case INPUT_PARAM_1:
+	case INPUT_PARAM_3:
 		{
-			std::vector<int> vector_int;
-			static_pDeviceDriver->GetOpened(vector_int);
-			if (0 == vector_int.size())
+			TCDChannelI2CConfiguration channelI2CConfig;
+			channelI2CConfig.clockrate = RATE_CLOCKRATE_K * StringToNumber(static_vector_command.at(CLOCKRATE)); // param 1 clock rate
+			channelI2CConfig.sendOption = StringToNumber(static_vector_command.at(SEND_OPTION));
+			channelI2CConfig.receiveOption = StringToNumber(static_vector_command.at(RECEIVE_OPTION));
+			int res = static_pDeviceDriver->ConfigI2C(static_current_open_index, &channelI2CConfig);
+			std::string strErrorString;
+			if (0 != res)
 			{
-				printf("No device is opened!\n");
-				return -1;
+				static_pDeviceDriver->GetLastErrorString(strErrorString);
 			}
-			int number = StringToNumber(static_vector_command.at(1));
-			if (TCD_I2C_CLOCK_STANDARD_MODE != number && TCD_I2C_CLOCK_STANDARD_MODE_3P != number\
-				&& TCD_I2C_CLOCK_FAST_MODE != number && TCD_I2C_CLOCK_FAST_MODE_PLUS != number \
-				&& TCD_I2C_CLOCK_HIGH_SPEED_MODE != number)
-			{
-				printf ("I2C Speed Error!\n");
-			}
-			
-
+			printf("%s", strErrorString.c_str());
 		}
 		break;
 	default:
-		Print_Function_Usage_Error(static_vector_command.at(0));
+		Print_Function_Usage_Error();
 		return -1;
 	}
 	return 0;
 }
 
-static int SeparateParameters(std::string strLine, std::vector<std::string> &vectorParameters)
+
+static int call_geti2c()
 {
-	vectorParameters.clear();
-	std::string::size_type pos = 0;
-
-	while (-1 != (pos = strLine.find_first_of(' ')) )
+	FTDI_DEVICE_DRIVER_LOW_CHECK(GetOpened());
+	switch(static_vector_command.size())
 	{
-		if (0 == pos)
+	case INPUT_PARAM_0:
 		{
-			strLine.assign(strLine.begin() + 1, strLine.end());
-			continue;
+			TCDChannelI2CConfiguration channelI2CConfig;
+			int res = static_pDeviceDriver->GetI2CConfig(static_current_open_index, channelI2CConfig);
+			printf("Clock Rate = %d K\nSend Option = %d\nReceive Option = %d\nThree Phase Clock = %d\n", \
+				channelI2CConfig.clockrate/RATE_CLOCKRATE_K,\
+				channelI2CConfig.sendOption,
+				channelI2CConfig.receiveOption,
+				(int)(channelI2CConfig.threephaseclock));	
 		}
-		std::string strTemp;
-		strTemp.assign(strLine.begin(), strLine.begin() + pos);
-		vectorParameters.push_back(strTemp);
-		strLine.assign(strLine.begin() + pos, strLine.end());
+		break;
+	default:
+		Print_Function_Usage_Error();
+		break;
 	}
+	return 0;
+}
 
-	if (!strLine.empty())
+//!Config common configuration.
+//@param 1 USBBuffer
+//@param 2 Read time outs
+//@param 3 Write time outs
+//@param 4 Retry count
+//@param 5 Latency time
+static int call_configcom()
+{
+	FTDI_DEVICE_DRIVER_LOW_CHECK(GetOpened());
+	enum {
+		USB_BUFFER = 1,
+		READ_TIME_OUTS,
+		WRITE_TIME_OUTS,
+		RETRY_COUNT,
+		LATENCY_TIME
+	};
+	switch(static_vector_command.size())
 	{
-		vectorParameters.push_back(strLine);
+	case INPUT_PARAM_5:
+		{
+			TCDChannelCommonConfiguration commonConfig;
+			commonConfig.USBBuffer = StringToNumber(static_vector_command.at(USB_BUFFER));
+			commonConfig.readtimeouts = StringToNumber(static_vector_command.at(READ_TIME_OUTS));
+			commonConfig.writetimeouts = StringToNumber(static_vector_command.at(WRITE_TIME_OUTS));
+			commonConfig.retrycount = StringToNumber(static_vector_command.at(RETRY_COUNT));
+			commonConfig.latencytime = StringToNumber(static_vector_command.at(LATENCY_TIME));
+			int res = static_pDeviceDriver->ConfigCommon(static_current_open_index, &commonConfig);
+			if (0 != res)
+			{
+				std::string strTemp;
+				static_pDeviceDriver->GetLastErrorString(strTemp);
+				printf("%s", strTemp);
+			}
+		}
+		break;
+	default:
+		Print_Function_Usage_Error();
+		break;
 	}
 
 	return 0;
 }
 
-static int Print_Function_Usage_Error(std::string strCommand)
+static int call_getcom()
 {
-	printf("function [%s] use error, input \"help [%s]\" for help.\n", strCommand.c_str(), strCommand.c_str());
+	FTDI_DEVICE_DRIVER_LOW_CHECK(GetOpened());
+	switch(static_vector_command.size())
+	{
+	case INPUT_PARAM_0:
+		{
+			TCDChannelCommonConfiguration channeCommConfig;
+			int res = static_pDeviceDriver->GetCommonConfig(static_current_open_index, channeCommConfig);
+			printf("USB Buffer = %d \nRead Time Outs = %d\nWrite Time Outs = %d\nRetry Count = %d\nLatency Time = %d\n", \
+				channeCommConfig.USBBuffer,\
+				channeCommConfig.readtimeouts,
+				channeCommConfig.writetimeouts,
+				(int)(channeCommConfig.retrycount),
+				channeCommConfig.latencytime);	
+		}
+		break;
+	default:
+		Print_Function_Usage_Error();
+		break;
+	}
+
 	return 0;
 }
 
-static int Print_Function_Not_Supported(std::string strCommand)
+//!Config UART Configuration
+//@param 1 Baud rate
+static int call_configuart()
 {
-	printf("This command is not supported by %s utility.\n", strCommand.c_str());
-	return 0;
-}
-
-
-//default to be Dec mode
-static int StringToNumber(std::string strContent)
-{
-	int num = 0;
-	for (int i=0; i != strContent.size(); ++i)
-	{
-		if (strContent.at(i) >= '0' && strContent.at(i) <= '9')
-		{
-			num = 10*num + strContent.at(i) - '0';
-		} 
-		else 
-		{
-			return -1;
-		}
-	}
-	return num;
-}
-
-static int StringToHEX(std::string strContent, int &number)
-{
-	int num = 0;
-	for (size_t i=0; i != strContent.size(); ++i)
-	{
-		if (strContent.at(i) >= '0' && strContent.at(i) <= '9')
-		{
-			num = 16*num + strContent.at(i) - '0';
-		} 
-		else if (strContent.at(i) >= 'a' && strContent.at(i) <= 'f')
-		{
-			num = 16*num + strContent.at(i) - 'a' + 10;
-		}
-		else if (strContent.at(i) >= 'A' && strContent.at(i) <= 'F')
-		{
-			num = 16*num + strContent.at(i) - 'A' + 10;
-		}
-		else 
-		{
-			return -1;
-		}
-	}
-
-	number = num;
-	return 0;
-}
-
-static int StringToHEX_OneByte(std::string strContent, unsigned char &number)
-{
-	//if starts with 0x, ignore it
-	if (strContent.empty())
-	{
-		return -1;
-	}
-
-	//Trim 0x
-	if (strContent.size() > 2)
-	{
-		//judge if starts from 0x
-		std::string::size_type pos1 =	strContent.find_first_of("0x", 0);
-		std::string::size_type pos2 = strContent.find_first_of("0X", 0);
-
-		if (-1 != pos1 || -1 != pos2)
-		{
-			std::string::size_type pos = pos1 > pos2 ? pos1: pos2;
-			strContent.assign(strContent.begin()+pos + 2, strContent.end());
-		}
-	}
+	FTDI_DEVICE_DRIVER_LOW_CHECK(GetOpened());
 	
-	if (strContent.size() > 2)
+	switch(static_vector_command.size())
 	{
-		return -1;
+	case INPUT_PARAM_5:
+		break;
+	default:
+		Print_Function_Usage_Error();
+		break;
+
+	}
+	return 0;
+}
+
+static int call_getuart()
+{
+	FTDI_DEVICE_DRIVER_LOW_CHECK(GetOpened());
+	int res = -1;
+	TCDChannelUARTConfiguration channeUARTConfig;
+	switch(static_vector_command.size())
+	{
+	case INPUT_PARAM_0:
+		res = static_pDeviceDriver->GetUARTConfig(static_current_open_index, channeUARTConfig);	
+		break;
+	default:
+		res = -1;
+		break;
+	}
+	if (0 != res)
+	{
+		Print_Function_Usage_Error();
+	} else
+	{
+		printf("Baud Rate = %d \nBit Per Word = %d\nStop Bits = %d\nParity = %d\nFlow Control = %d\n", \
+			channeUARTConfig.baudrate,
+			channeUARTConfig.bitsperword,
+			channeUARTConfig.stopbits,
+			channeUARTConfig.parity,
+			channeUARTConfig.flowcontrol);	
 	}
 
-	int tempNumber = 0;
-	if (0 != StringToHEX(strContent, tempNumber))
+	return res;
+}
+
+static int call_quit()
+{
+	static_pDeviceDriver->CloseInstance();
+	return 0;
+}
+
+static int Print_Function_Usage_Error()
+{
+	printf("function [%s] use error, input \"help [%s]\" for help.\n", static_vector_command.at(INDEX_COMMAND_NAME).c_str(), static_vector_command.at(INDEX_COMMAND_NAME).c_str());
+	return 0;
+}
+
+static int Print_Function_Not_Supported()
+{
+	printf("This command is not supported by %s utility.\n", static_vector_command.at(INDEX_COMMAND_NAME).c_str());
+	return 0;
+}
+
+static int GetOpened()
+{
+	static_pDeviceDriver->GetOpened(static_open_vector);
+	if (0 == static_open_vector.size())
 	{
+		printf("No device opened!\n");
 		return -1;
 	}
-	number = tempNumber;
+	static_current_open_index = static_open_vector.at(DEFAUL_OPEN_INDEX);
 	return 0;
-	//return ;
 }
+
+//On multi-thread, this function may not good enough

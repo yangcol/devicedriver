@@ -117,7 +117,7 @@ uint32 TCD_FTDICHIP::InitialChannel()
 	
 	initial_config_comm |= m_tcdData->pCommunication->Initial();
 	initial_config_comm |= m_tcdData->pCommunication->SetFormat(channel_format);
-	initial_config_comm |= m_tcdData->pCommunication->SetAddress(address);
+	initial_config_comm |= m_tcdData->pCommunication->SetSalveAddress(address);
 	if (TCD_OK != initial_config_comm)
 	{
 		returnValue = TCD_FAIL_INITIAL;
@@ -214,7 +214,7 @@ _end:
 	return returnValue;
 }
 
-uint32 TCD_FTDICHIP::GetChannelInfo(PTCDChannelInfo pchannelInfo)
+uint32 TCD_FTDICHIP::GetChannelInfo(pTCDChannelInfo pchannelInfo)
 {
 	EnterCriticalSection(&m_tcdData->m_channelSLock);
 	uint32 returnValue = TCD_OK;
@@ -240,7 +240,7 @@ uint32 TCD_FTDICHIP::GetChannelInfo(PTCDChannelInfo pchannelInfo)
 	return returnValue;
 }
 
-uint32 TCD_FTDICHIP::SetChannelInfo(const PTCDChannelInfo pchannelInfo)
+uint32 TCD_FTDICHIP::SetChannelInfo(const pTCDChannelInfo pchannelInfo)
 {
 	EnterCriticalSection(&m_tcdData->m_channelSLock);
 	uint32 returnValue = TCD_OK;
@@ -575,6 +575,11 @@ uint32 TCD_FTDICHIP::SaveChannelI2CConfiguration(const pTCDChannelI2CConfigurati
 	}
 
 	returnValue = m_tcdData->pConfiguration->SaveChannelI2CConfiguration(pI2CConfig);
+	if (TCD_OK == returnValue)
+	{
+		m_tcdData->pCommunication->SetReceiveOption(pI2CConfig->receiveOption);
+		m_tcdData->pCommunication->SetSendOption(pI2CConfig->sendOption);
+	}
 _end:
 	LeaveCriticalSection(&m_tcdData->m_channelSLock);
 	return returnValue;
@@ -704,7 +709,7 @@ uint32 TCD_FTDICHIP::SetAddress(uchar addr)
 		goto _end;
 	}
 
-	returnValue = (m_tcdData->pCommunication->SetAddress(addr));
+	returnValue = (m_tcdData->pCommunication->SetSalveAddress(addr));
 _end:
 	LeaveCriticalSection(&m_tcdData->m_channelSLock);
 	return returnValue;

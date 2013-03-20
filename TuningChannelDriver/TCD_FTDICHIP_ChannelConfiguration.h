@@ -11,7 +11,7 @@ class TCD_FTDICHIP_ChannelConfiguration
 public:
 	TCD_FTDICHIP_ChannelConfiguration(TCDHandle tcdHandle);
 	~TCD_FTDICHIP_ChannelConfiguration(void);
-
+	
 	uint32 Initial();
 
 	uint32 GetChannelAvailableFormat(puchar pformatByte);
@@ -100,8 +100,9 @@ public:
 	int LoadConfigurationFromFile(std::string strPath);
 
 	int SaveConfigurationToFile(std::string strPath);
-
+	
 	int GetAddress(puchar paddr);
+	
 protected:
 	//TCD_FTDICHIP_ChannelConfiguration(void);
 private:

@@ -13,9 +13,9 @@ using std::fstream;
 using std::ofstream;
 using std::ifstream;
 
-static bool CopyConfiguration(pTCDChannelCommonConfiguration pDes, const pTCDChannelCommonConfiguration pSrc);
-static bool CopyConfiguration( pTCDChannelI2CConfiguration pDes, const pTCDChannelI2CConfiguration pSrc);
-static bool CopyConfiguration(pTCDChannelUARTConfiguration pDes, const pTCDChannelUARTConfiguration pSrc);
+//static bool CopyConfiguration(pTCDChannelCommonConfiguration pDes, const pTCDChannelCommonConfiguration pSrc);
+//static bool CopyConfiguration( pTCDChannelI2CConfiguration pDes, const pTCDChannelI2CConfiguration pSrc);
+//static bool CopyConfiguration(pTCDChannelUARTConfiguration pDes, const pTCDChannelUARTConfiguration pSrc);
 static bool CopyConfiguration(pTCDChannelCommonConfiguration pDes, TCDChannelCommonConfiguration Src);
 static bool CopyConfiguration(pTCDChannelI2CConfiguration pDes, TCDChannelI2CConfiguration Src);
 static bool CopyConfiguration(pTCDChannelUARTConfiguration pDes, TCDChannelUARTConfiguration Src);
@@ -41,7 +41,7 @@ namespace {
 		const uchar default_format = TCD_FORMAT_I2C;
 
 		enum {
-			DEFAULT_ADDRESS = 0x60 //default address of fortermedia chip
+			DEFAULT_ADDRESS = 0x60 //default address of fortemedia chip
 		};
 
 		//default common configuration.
@@ -63,6 +63,7 @@ namespace {
 
 		//If you want to add item,  insert it into specified type. not be on top or bottom, and the same with string
 		enum {
+			format_ERROR,
 			//Common config
 			USBuffer_ERROR,
 			readwritetimeouts_ERROR,
@@ -72,7 +73,9 @@ namespace {
 			
 			//I2C config
 			clockrate_ERROR,
-			slaveaddress_ERROR,
+			//slaveaddress_ERROR,
+			transferOption_ERROR,
+			receiveOption_ERROR,
 			threephaseclock_ERROR,
 
 			//UART Config
@@ -103,6 +106,7 @@ namespace {
 		const char const_currentFormatKeyWords[] = "CURRENT_FORMAT";
 
 		const struct configStruct configStructMap[] = {
+			{format_ERROR, "Format error.", "Format not supported"},
 			{USBuffer_ERROR, "USB buffer configuration error.", "USB_BUFFER"},
 			{readwritetimeouts_ERROR, "Read time outs error.", "READ_TIME_OUTS"},
 			{writetimeouts_ERROR, "Write time outs error.", "WRITE_TIME_OUTS"},
@@ -110,7 +114,9 @@ namespace {
 			{latencytime_ERROR, "Latency timer error.", "LATENCY_TIME"},
 			
 			{clockrate_ERROR, "Clock rate error", "CLOCK_RATE"},
-			{slaveaddress_ERROR, "slave address error", "SLAVE_ADDRESS"},
+			//{slaveaddress_ERROR, "slave address error", "SLAVE_ADDRESS"},
+			{transferOption_ERROR,"transfer option error", "TRANSFER_OPTION"},
+			{receiveOption_ERROR, "receive option error", "RECEIVE_OPTION"},
 			{threephaseclock_ERROR, "Three phase clock error.", "THREE_PHASE_CLOCK"},
 			
 
@@ -123,9 +129,10 @@ namespace {
 
 		//default I2C configuration.
 		const struct TCDChannelI2CConfiguration default_I2CConfiguration
-			= { TCD_I2C_CLOCK_FAST_MODE,		//clockrate.STANDARD
+			= {	TCD_I2C_CLOCK_STANDARD_MODE,		//clockrate.STANDARD
 					false,			//three phase clock.
-					DEFAULT_ADDRESS
+					I2C_TRANSFER_OPTIONS_START_BIT|I2C_TRANSFER_OPTIONS_STOP_BIT|I2C_TRANSFER_OPTIONS_BREAK_ON_NACK,
+					I2C_TRANSFER_OPTIONS_START_BIT|I2C_TRANSFER_OPTIONS_NACK_LAST_BYTE
 		} ;
 
 		//default UART configuration.
@@ -280,12 +287,14 @@ namespace {
 			
 			static const std::string m_strSpace; //(" = ");
 			static const std::string m_strBlank; //("#----------------------------------------");
+			static const std::string m_strformatHint;//("#1 equls I2C, 2 equals UART")
 			static const std::string m_strCommonP;// #Common Parameters
 			static const std::string m_strI2CP;// #I2C Parameters
 			static const std::string m_strUARTP;// #UART Parameters
 			static const std::string m_strFileHead;
 			static const std::string m_strTempFilePath;
 			static std::string TCDConfigLog::m_logFilePath;
+			
 			//Single file means all configurations are in the same file.
 			static bool m_b_LOG_SINGLEFILE;
 			enum {
@@ -304,6 +313,7 @@ namespace {
 		const std::string TCDConfigLog::m_const_logFilePath = "Option.ini";
 		const std::string TCDConfigLog::m_strSpace = " = ";
 		const std::string TCDConfigLog::m_strBlank = "#----------------------------------------";
+		const std::string TCDConfigLog::m_strformatHint = "#Format: 1 equls I2C, 2 equals UART";
 		const std::string TCDConfigLog::m_strCommonP = "#Common Parameters";
 		const std::string TCDConfigLog::m_strI2CP = "#I2C Parameters";
 		const std::string TCDConfigLog::m_strUARTP = "#UART Parameters\n#STOPBITS: 0~Stop bit 1, 2~Stop bit 2;\
@@ -534,9 +544,13 @@ namespace {
 				case threephaseclock_ERROR:
 					flag = pI2CConfig->threephaseclock;
 					break;
-				case slaveaddress_ERROR:
-					num = pI2CConfig->slaveaddress;
+				case transferOption_ERROR:
+					num = pI2CConfig->sendOption;
 					break;
+				case receiveOption_ERROR:
+					num = pI2CConfig->receiveOption;
+					break;
+
 				default:
 					break;
 				}
@@ -626,6 +640,7 @@ namespace {
 			//
 			//std::string strContent;
 			//strContent.assign(const_currentFormatKeyWords);
+			//format_ERROR is in 
 			std::string strContent;
 			strContent.push_back('0' + Format);
 
@@ -693,7 +708,7 @@ namespace {
 
 			if (false == m_b_LOG_SINGLEFILE)
 			{
-				printf("%s", m_logFilePath.c_str());
+				//printf("%s", m_logFilePath.c_str());
 				m_logfile.open(m_logFilePath.c_str(), std::ios::in | std::ios::out | std::ios::trunc);
 			}
 			else 
@@ -705,19 +720,21 @@ namespace {
 			{
 				return -1;
 			}
-
+			m_logfile.clear();
 			std::string strLine;
 			//Insert blank line
 
 			m_logfile<<m_strBlank<<std::endl;
+			//Don't insert serialNumber
 			//Insert SerialNumber
-			strLine.assign(const_serialNumberKeyWords);
-			strLine.insert(strLine.end(), m_strSpace.begin(), m_strSpace.end());
-			strLine.insert(strLine.end(), strSerialNumber.begin(), strSerialNumber.end());
+			//strLine.assign(const_serialNumberKeyWords);
+			//strLine.insert(strLine.end(), m_strSpace.begin(), m_strSpace.end());
+			//strLine.insert(strLine.end(), strSerialNumber.begin(), strSerialNumber.end());
 		
-			m_logfile<<strLine<<std::endl;
+			//m_logfile<<strLine<<std::endl;
 
 			//Insert  current format line
+			m_logfile<<m_strformatHint<<std::endl;
 			strLine.clear();
 			strLine.assign(const_currentFormatKeyWords);
 			strLine.insert(strLine.end(), m_strSpace.begin(), m_strSpace.end());
@@ -761,6 +778,7 @@ namespace {
 				strLine.insert(strLine.end(), m_strSpace.begin(), m_strSpace.end());
 				m_logfile<<strLine<<std::endl;
 			}
+			m_logfile.flush();
 			TCDConfigLog::SaveCurrentFormat(strSerialNumber, default_format);
 			TCDChannelCommonConfiguration tmp_defaultCommonConfig;
 			TCDChannelUARTConfiguration tmp_defaultUARTConfig;
@@ -900,25 +918,25 @@ namespace {
 					continue;
 				}
 
-				if (false == bSNFound)
-				{
-					oftmp<<stringeachLine<<std::endl; 
-					
-					if (false == m_b_LOG_SINGLEFILE)
-					{
-						bSNFound = true;
-						continue;
-					}
-					//Find serial number
-					if (-1 != stringeachLine.find(strSerialNumber, 0))
-					{
-						bSNFound = true;
-						continue;
-					}			
-				}
+				//if (false == bSNFound)
+				//{
+				//	oftmp<<stringeachLine<<std::endl; 
+				//	
+				//	if (false == m_b_LOG_SINGLEFILE)
+				//	{
+				//		bSNFound = true;
+				//		continue;
+				//	}
+				//	//Find serial number
+				//	if (-1 != stringeachLine.find(strSerialNumber, 0))
+				//	{
+				//		bSNFound = true;
+				//		continue;
+				//	}			
+				//}
 
-				if (true == bSNFound)
-				{
+				//if (true == bSNFound)
+				//{
 					std::string stringTemp;
 					bool alreadyFound = false;
 					if(!alreadyFound && 0 == getExactContent(stringeachLine, strKeyWord, stringTemp))
@@ -929,7 +947,7 @@ namespace {
 							continue;
 						}
 					oftmp<<stringeachLine<<std::endl;
-				}
+				//}
 			}
 			
 			oftmp.close();
@@ -1073,8 +1091,9 @@ uint32 TCD_FTDICHIP_ChannelConfiguration::Initial()
 
 	if (0 != result)
 	{
-		LoadDefaultConfiguration();
+		return TCD_FAIL_INITIAL;
 	}
+
 	//
 	//Other Initialization
 	//Initial I2C State if current format is I2C
@@ -1090,8 +1109,6 @@ uint32 TCD_FTDICHIP_ChannelConfiguration::Initial()
 		{
 			channel_config.Options = I2C_DISABLE_3PHASE_CLOCKING;
 		} 
-
-		pfunc_I2C_CloseChannel p_I2C_CloseChannel;
 		
 		ftStatus = p_I2C_InitChannel(m_tcdHandle, &channel_config);
 		if (FT_OK != ftStatus)
@@ -1141,7 +1158,7 @@ uint32 TCD_FTDICHIP_ChannelConfiguration::GetChannelCommonConfiguration(pTCDChan
 		return TCD_PARAM_ERROR;
 	}
 
-	if (!CopyConfiguration(pcommonConfig, &m_channelCommConfig))
+	if (!CopyConfiguration(pcommonConfig, m_channelCommConfig))
 	{
 		return TCD_OTHER_ERROR;
 	}
@@ -1156,7 +1173,7 @@ uint32 TCD_FTDICHIP_ChannelConfiguration::GetChannelI2CConfiguration(pTCDChannel
 		return TCD_PARAM_ERROR;
 	}
 
-	if (!CopyConfiguration(pI2CConfig, &m_channelI2CConfig))
+	if (!CopyConfiguration(pI2CConfig, m_channelI2CConfig))
 	{
 		return TCD_OTHER_ERROR;
 	}
@@ -1171,7 +1188,7 @@ uint32 TCD_FTDICHIP_ChannelConfiguration::GetChannelUARTConfiguration(pTCDChanne
 		return TCD_PARAM_ERROR;
 	}
 
-	if (!CopyConfiguration(pUARTConfig, &m_channelUARTConfig))
+	if (!CopyConfiguration(pUARTConfig, m_channelUARTConfig))
 	{
 		return TCD_OTHER_ERROR;
 	}
@@ -1231,7 +1248,7 @@ uint32 TCD_FTDICHIP_ChannelConfiguration::CheckChannelCommConfiguration(const pT
 
 	//Copy configuration
 	TCDChannelCommonConfiguration OldCommonConfiguration;
-	CopyConfiguration(&OldCommonConfiguration, &m_channelCommConfig);
+	CopyConfiguration(&OldCommonConfiguration, m_channelCommConfig);
 
 	int retVal = 0;
 	//Set configuration to test if it's valid.
@@ -1259,7 +1276,7 @@ uint32 TCD_FTDICHIP_ChannelConfiguration::CheckChannelI2CConfiguration(const pTC
 
 	//Copy configuration
 	TCDChannelI2CConfiguration OldI2CConfiguration;
-	CopyConfiguration(&OldI2CConfiguration, &m_channelI2CConfig);
+	CopyConfiguration(&OldI2CConfiguration, m_channelI2CConfig);
 
 	int retVal = 0;
 	//Set configuration to test if it's valid.
@@ -1288,7 +1305,7 @@ uint32 TCD_FTDICHIP_ChannelConfiguration::CheckChannelUARTConfiguration(const pT
 
 	//Copy configuration
 	TCDChannelUARTConfiguration OldUARTConfiguration;
-	CopyConfiguration(&OldUARTConfiguration, &m_channelUARTConfig);
+	CopyConfiguration(&OldUARTConfiguration, m_channelUARTConfig);
 
 	int retVal = 0;
 	//Set configuration to test if it's valid.
@@ -1319,7 +1336,7 @@ uint32 TCD_FTDICHIP_ChannelConfiguration::SaveChannelCommonConfiguration(const p
 		return TCD_API_SEQUENCE_ERROR;
 	}
 	
-	CopyConfiguration(&m_channelCommConfig, pcommonConfig);
+	CopyConfiguration(&m_channelCommConfig, *pcommonConfig);
 	
 	if (0 !=UpdateConfigurationFile(CONFIGTYPE_COMMON))
 	{
@@ -1340,7 +1357,7 @@ uint32 TCD_FTDICHIP_ChannelConfiguration::SaveChannelI2CConfiguration(const pTCD
 	{
 		return TCD_API_SEQUENCE_ERROR;
 	}
-	CopyConfiguration(&m_channelI2CConfig, pI2CConfig);
+	CopyConfiguration(&m_channelI2CConfig, *pI2CConfig);
 
 	if (0 !=UpdateConfigurationFile(CONFIGTYEP_I2C))
 	{
@@ -1361,7 +1378,7 @@ uint32 TCD_FTDICHIP_ChannelConfiguration::SaveChannelUARTConfiguration(const pTC
 		return TCD_API_SEQUENCE_ERROR;
 	}
 
-	CopyConfiguration(&m_channelUARTConfig, pUARTConfig);
+	CopyConfiguration(&m_channelUARTConfig, *pUARTConfig);
 
 	if (0 !=UpdateConfigurationFile(CONFIGTYPE_UART))
 	{
@@ -1547,16 +1564,15 @@ int TCD_FTDICHIP_ChannelConfiguration::UpdateConfigurationFile(int configType)
 
 int TCD_FTDICHIP_ChannelConfiguration::LoadDefaultConfiguration()
 {
-	//TODO:Why it's not applicable if const_cast is not used?
 	//
-	const pTCDChannelCommonConfiguration pconst_Common =const_cast<const pTCDChannelCommonConfiguration>(&default_CommonConfiguration);
-	CopyConfiguration(&m_channelCommConfig, pconst_Common);
+	//const pTCDChannelCommonConfiguration pconst_Common =const_cast<const pTCDChannelCommonConfiguration>(&default_CommonConfiguration);
+	CopyConfiguration(&m_channelCommConfig, default_CommonConfiguration);
 
-	const pTCDChannelI2CConfiguration pconst_I2C = const_cast<const pTCDChannelI2CConfiguration>(&default_I2CConfiguration);
-	CopyConfiguration(&m_channelI2CConfig, pconst_I2C);
+	//const pTCDChannelI2CConfiguration pconst_I2C = const_cast<const pTCDChannelI2CConfiguration>(&default_I2CConfiguration);
+	CopyConfiguration(&m_channelI2CConfig, default_I2CConfiguration);
 
-	const pTCDChannelUARTConfiguration pconst_UART = const_cast<const pTCDChannelUARTConfiguration>(&default_UART_Configuration);
-	CopyConfiguration(&m_channelUARTConfig, pconst_UART);
+	//const pTCDChannelUARTConfiguration pconst_UART = const_cast<const pTCDChannelUARTConfiguration>(&default_UART_Configuration);
+	CopyConfiguration(&m_channelUARTConfig, default_UART_Configuration);
 	
 	m_format = default_format;
 	return 0;
@@ -1615,7 +1631,8 @@ int TCD_FTDICHIP_ChannelConfiguration::SetChannelCommonConfiguration(const pTCDC
 		}
 		return latencytime_ERROR; 
 	}
-
+	
+	CopyConfiguration(&m_channelCommConfig, *pcommonConfig);
 	return 0;
 }
 
@@ -1640,18 +1657,17 @@ int TCD_FTDICHIP_ChannelConfiguration::SetChannelI2CConfiguration(const pTCDChan
 	{
 		channel_config.Options = I2C_DISABLE_3PHASE_CLOCKING;
 	} 
-
+	
+	//It's ok to initial channel several times.
 	ftStatus = p_I2C_InitChannel(m_tcdHandle, &channel_config);
 	if (FT_OK != ftStatus)
 	{
 		//TODO this place is not correct.
-		if (0 != SetChannelI2CConfiguration(&m_channelI2CConfig))
-		{
-			SetChannelI2CConfiguration(const_cast<pTCDChannelI2CConfiguration>(&default_I2CConfiguration));
-		}
+		SetChannelI2CConfiguration(const_cast<pTCDChannelI2CConfiguration>(&default_I2CConfiguration));
 		return clockrate_ERROR;
 	}
-
+	
+	CopyConfiguration(&m_channelI2CConfig, *pI2CConfig);
 	return 0;
 }
 
@@ -1717,6 +1733,16 @@ int TCD_FTDICHIP_ChannelConfiguration::SetChannelUARTConfiguration(const pTCDCha
 	UCHAR Xon = 0, Xoff = 0;
 	USHORT flowcontrol = static_cast<USHORT>(pUARTConfig->flowcontrol);
 	ftStatus = FT_SetFlowControl(m_tcdHandle, flowcontrol, Xon, Xoff);
+	if (FT_OK != ftStatus)
+	{
+		if (0 != SetChannelUARTConfiguration(&m_channelUARTConfig))
+		{
+			SetChannelUARTConfiguration(const_cast<pTCDChannelUARTConfiguration>(&default_UART_Configuration));
+		}
+		return flowcontrol_ERROR;
+	}
+	
+	CopyConfiguration(&m_channelUARTConfig, *pUARTConfig);
 	return 0;
 }
 
@@ -1768,15 +1794,15 @@ static bool CopyConfiguration(pTCDChannelCommonConfiguration pDes, TCDChannelCom
 	return true;
 }
 
-static bool CopyConfiguration(pTCDChannelI2CConfiguration pDes, const pTCDChannelI2CConfiguration pSrc)
-{
-	if (NULL == pSrc || NULL == pDes)
-	{
-		return false;
-	}
-	CopyConfiguration(pDes, *pSrc);
-	return true;
-}
+//static bool CopyConfiguration(pTCDChannelI2CConfiguration pDes, const pTCDChannelI2CConfiguration pSrc)
+//{
+//	if (NULL == pSrc || NULL == pDes)
+//	{
+//		return false;
+//	}
+//	CopyConfiguration(pDes, *pSrc);
+//	return true;
+//}
 
 static bool CopyConfiguration(pTCDChannelI2CConfiguration pDes, TCDChannelI2CConfiguration Src)
 {
@@ -1787,7 +1813,9 @@ static bool CopyConfiguration(pTCDChannelI2CConfiguration pDes, TCDChannelI2CCon
 
 	pDes->clockrate = Src.clockrate;
 	pDes->threephaseclock = Src.threephaseclock;
-	pDes->slaveaddress = Src.slaveaddress;
+	//pDes->slaveaddress = Src.slaveaddress;
+	pDes->sendOption = Src.sendOption;
+	pDes->receiveOption = Src.receiveOption;
 	return true;
 }
 
